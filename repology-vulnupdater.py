@@ -152,7 +152,7 @@ async def main() -> None:
 
     args = parser.parse_args()
 
-    logging.basicConfig(format='%(asctime)s %(name)-15s %(levelname)-8s %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
+    logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
 
     await Worker(args).run()
 
