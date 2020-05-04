@@ -1,0 +1,17 @@
+language: python
+dist: xenial
+sudo: required
+cache: pip
+matrix:
+  include:
+    - python: 3.8
+      env: COVERAGE=yes
+    - python: nightly
+  allow_failures:
+    - python: nightly
+before_install:
+  - pip install -r requirements-dev.txt
+script:
+  - make test
+  - make flake8
+  - make mypy
