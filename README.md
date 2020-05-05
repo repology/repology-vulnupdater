@@ -1,6 +1,6 @@
 # Repology vulnerability data updater
 
-[![Build Status](https://travis-ci.org/repology/repology-vulnupdter.svg?branch=master)](https://travis-ci.org/repology/repology-vulnupdter)
+[![Build Status](https://travis-ci.org/repology/repology-vulnupdater.svg?branch=master)](https://travis-ci.org/repology/repology-vulnupdater)
 
 ## Algorithm
 
