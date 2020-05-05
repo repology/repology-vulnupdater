@@ -66,7 +66,7 @@ class Worker:
                 continue
 
             for child in node.childs:
-                if isinstance(child, CPEMatch) and child.vulnerable and child.start_version != '-':
+                if isinstance(child, CPEMatch) and child.vulnerable and child.end_version and child.end_version != '-':
                     cpe_matches.add(child)
 
         if cpe_matches:
