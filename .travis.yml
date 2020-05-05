@@ -1,6 +1,10 @@
 language: python
-dist: xenial
+dist: bionic
 sudo: required
+addons:
+  apt:
+    packages:
+      - libyajl-dev
 cache: pip
 matrix:
   include:
