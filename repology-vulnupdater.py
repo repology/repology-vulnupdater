@@ -135,6 +135,9 @@ class Worker:
             ]
 
             if not due_sources:
+                if self._options.once_only:
+                    return
+
                 delay = await get_sleep_till_due_source(self._pgpool, self._options.update_period)
                 logging.debug(f'nothing to update yet - sleeping for {delay} second(s)')
                 await asyncio.sleep(delay)
