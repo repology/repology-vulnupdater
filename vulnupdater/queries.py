@@ -102,7 +102,7 @@ async def get_sleep_till_due_source(pool: aiopg.Pool, update_period: float) -> f
             return (await cur.fetchone())[0].total_seconds() or 0.01
 
 
-async def update_source(pool: aiopg.Pool, url: str, etag: Optional[str] = None, max_last_modified: Optional[str] = None) -> None:
+async def update_source(pool: aiopg.Pool, url: str, etag: Optional[str] = None, max_last_modified: Optional[str] = None, num_updates: int = 0) -> None:
     async with pool.acquire() as conn:
         async with conn.cursor() as cur:
             await cur.execute(
@@ -111,14 +111,16 @@ async def update_source(pool: aiopg.Pool, url: str, etag: Optional[str] = None, 
                 SET
                     etag = coalesce(%(etag)s, etag),
                     max_last_modified = coalesce(%(max_last_modified)s, max_last_modified),
-                    last_update = now()
+                    last_update = now(),
+                    total_updates = total_updates + %(num_updates)s
                 WHERE
                     url = %(url)s
                 """,
                 {
                     'url': url,
                     'etag': etag,
-                    'max_last_modified': max_last_modified
+                    'max_last_modified': max_last_modified,
+                    'num_updates': num_updates,
                 }
             )
 
