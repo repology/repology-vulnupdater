@@ -42,10 +42,10 @@ _CHUNK_SIZE = 65536
 _USER_AGENT = 'repology-vulnupdater/0 (+{}/bots)'.format('https://repology.org')
 
 
-def generate_source_urls() -> List[str]:
+def generate_source_urls(start_year: int = 2002) -> List[str]:
     return [
         f'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-{year}.json.gz'
-        for year in range(2002, datetime.datetime.now().year + 1)
+        for year in range(start_year, datetime.datetime.now().year + 1)
     ]
 
 
@@ -121,14 +121,18 @@ class Worker:
         while True:
             logging.debug('iteration started')
 
-            all_source_urls = generate_source_urls()
-            registered_source_urls = await get_registered_source_urls(self._pgpool)
+            all_source_urls = set(generate_source_urls(self._options.start_year))
+            registered_source_urls = set(await get_registered_source_urls(self._pgpool))
 
-            for new_url in set(all_source_urls) - set(registered_source_urls):
+            for new_url in all_source_urls - registered_source_urls:
                 await register_source(self._pgpool, new_url)
                 logging.info(f'registered new source {new_url}')
 
-            due_sources = await get_due_sources(self._pgpool, self._options.update_period)
+            due_sources = [
+                source
+                for source in await get_due_sources(self._pgpool, self._options.update_period)
+                if source.url in all_source_urls
+            ]
 
             if not due_sources:
                 delay = await get_sleep_till_due_source(self._pgpool, self._options.update_period)
@@ -144,6 +148,9 @@ class Worker:
                 logging.debug('updating simplified vulnerabilities information')
                 await update_simplified_vulnerabilities(self._pgpool)
 
+            if self._options.once_only:
+                return
+
     async def run(self) -> None:
         async with aiopg.create_pool(self._options.dsn, minsize=1, maxsize=1, timeout=60) as self._pgpool:
             async with aiohttp.ClientSession() as self._session:
@@ -156,9 +163,11 @@ async def main() -> None:
     }
 
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('--dsn', default=config['DSN'], help='database connection params')
-    parser.add_argument('--update-period', type=float, default=600, help='update period in seconds')
-    parser.add_argument('--debug', action='store_true', help='enable debug logging')
+    parser.add_argument('-D', '--dsn', default=config['DSN'], help='database connection params')
+    parser.add_argument('-p', '--update-period', type=float, default=600.0, metavar='SECONDS', help='update period in seconds')
+    parser.add_argument('-d', '--debug', action='store_true', help='enable debug logging')
+    parser.add_argument('-1', '--once-only', action='store_true', help='do just a single update pass, don\'t loop')
+    parser.add_argument('-y', '--start-year', type=int, default=2002, metavar='YEAR', help='start year for feed retrieval')
 
     args = parser.parse_args()
 
