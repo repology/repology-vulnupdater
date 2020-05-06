@@ -34,7 +34,7 @@ from jsonslicer import JsonSlicer
 from vulnupdater.cveinfo import CPEMatch, CVEItem
 from vulnupdater.queries import Source, get_due_sources, get_registered_source_urls
 from vulnupdater.queries import get_sleep_till_due_source, register_source, update_cve
-from vulnupdater.queries import update_source
+from vulnupdater.queries import update_simplified_vulnerabilities, update_source
 
 
 _CHUNK_SIZE = 65536
@@ -73,7 +73,7 @@ class Worker:
             logging.info(f'updating {cve.cve_id} - {len(cpe_matches)} item(s)')
             await update_cve(self._pgpool, cve, list(cpe_matches))
 
-    async def _process_source(self, source: Source) -> None:
+    async def _process_source(self, source: Source) -> int:
         logging.debug(f'processing source {source.url}')
 
         headers = {
@@ -87,14 +87,16 @@ class Worker:
             if resp.status == 304:
                 logging.debug(f'source {source.url} was not modified')
                 await update_source(self._pgpool, source.url)
-                return
+                return 0
 
             if resp.status != 200:
                 logging.error(f'got bad HTTP code {resp.status} for source {source.url}')
                 await update_source(self._pgpool, source.url)
-                return
+                return 0
 
             logging.debug(f'updating source {source.url}')
+
+            num_cves_updated = 0
 
             with tempfile.NamedTemporaryFile(mode='wb') as tmpfile:
                 while (data := await resp.content.read(_CHUNK_SIZE)):
@@ -106,11 +108,14 @@ class Worker:
                     for item in map(CVEItem.parse, JsonSlicer(decompressor, ('CVE_Items', None))):
                         if item.last_modified > source.max_last_modified:
                             await self._process_updated_cve(item)
+                            num_cves_updated += 1
                         max_last_modified = max(max_last_modified, item.last_modified)
 
                 await update_source(self._pgpool, source.url, resp.headers.get('etag'), max_last_modified)
 
             logging.debug(f'done updating source {source.url}')
+
+            return num_cves_updated
 
     async def _loop(self) -> None:
         while True:
@@ -131,8 +136,13 @@ class Worker:
                 await asyncio.sleep(delay)
                 continue
 
+            num_cves_updated = 0
             for source in due_sources:
-                await self._process_source(source)
+                num_cves_updated += await self._process_source(source)
+
+            if num_cves_updated:
+                logging.debug('updating simplified vulnerabilities information')
+                await update_simplified_vulnerabilities(self._pgpool)
 
     async def run(self) -> None:
         async with aiopg.create_pool(self._options.dsn, minsize=2, maxsize=5, timeout=5) as self._pgpool:

@@ -32,6 +32,7 @@ __all__ = [
     'get_sleep_till_due_source',
     'register_source',
     'update_cve',
+    'update_simplified_vulnerabilities',
     'update_source',
 ]
 
@@ -166,4 +167,37 @@ async def update_cve(pool: aiopg.Pool, cve: CVEItem, cpe_matches: List[CPEMatch]
                         ) for match in cpe_matches
                     ]
                 }
+            )
+
+
+async def update_simplified_vulnerabilities(pool: aiopg.Pool) -> None:
+    async with pool.acquire() as conn:
+        async with conn.cursor() as cur:
+            await cur.execute(
+                """
+                DELETE FROM vulnerabilities_simplified;
+
+                WITH vulnerabilities_with_covering_ranges AS (
+                    SELECT
+                        cpe_vendor,
+                        cpe_product,
+                        start_version,
+                        end_version,
+                        start_version_excluded,
+                        end_version_excluded,
+                        max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
+                    FROM vulnerabilities
+                )
+                INSERT INTO vulnerabilities_simplified
+                SELECT DISTINCT
+                    cpe_vendor,
+                    cpe_product,
+                    start_version,
+                    end_version,
+                    start_version_excluded,
+                    end_version_excluded
+                FROM vulnerabilities_with_covering_ranges
+                WHERE
+                    coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
+                """
             )
