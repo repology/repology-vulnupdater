@@ -169,7 +169,7 @@ async def main() -> None:
     parser.add_argument('-D', '--dsn', default=config['DSN'], help='database connection params')
     parser.add_argument('-p', '--update-period', type=float, default=600.0, metavar='SECONDS', help='update period in seconds')
     parser.add_argument('-d', '--debug', action='store_true', help='enable debug logging')
-    parser.add_argument('-1', '--once-only', action='store_true', help='do just a single update pass, don\'t loop')
+    parser.add_argument('-1', '--once-only', action='store_true', help="do just a single update pass, don't loop")
     parser.add_argument('-y', '--start-year', type=int, default=2002, metavar='YEAR', help='start year for feed retrieval')
 
     args = parser.parse_args()
