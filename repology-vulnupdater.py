@@ -145,7 +145,7 @@ class Worker:
                 await update_simplified_vulnerabilities(self._pgpool)
 
     async def run(self) -> None:
-        async with aiopg.create_pool(self._options.dsn, minsize=2, maxsize=5, timeout=5) as self._pgpool:
+        async with aiopg.create_pool(self._options.dsn, minsize=1, maxsize=1, timeout=60) as self._pgpool:
             async with aiohttp.ClientSession() as self._session:
                 await self._loop()
 
