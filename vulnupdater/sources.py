@@ -34,9 +34,7 @@ class Source:
 
 
 def generate_sources(fast_only: bool = False) -> Iterable[Source]:
+    if not fast_only:
+        for year in range(2002, datetime.datetime.now().year + 1):
+            yield Source(f'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-{year}.json.gz', SLOW_UPDATE_PERIOD)
     yield Source('https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz', FAST_UPDATE_PERIOD)
-    if fast_only:
-        return
-
-    for year in range(2002, datetime.datetime.now().year + 1):
-        yield Source(f'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-{year}.json.gz', SLOW_UPDATE_PERIOD)
