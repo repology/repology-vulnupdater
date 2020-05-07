@@ -18,18 +18,17 @@
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
-import asyncio
 import datetime
 import gzip
 import logging
-import tempfile
-from typing import List, MutableSet
-
-import aiohttp
-
-import aiopg
+import time
+from typing import Any, List, MutableSet
 
 from jsonslicer import JsonSlicer
+
+import psycopg2
+
+import requests
 
 from vulnupdater.cveinfo import CPEMatch, CVEItem
 from vulnupdater.queries import Source, get_due_sources, get_registered_source_urls
@@ -52,13 +51,13 @@ def generate_source_urls(start_year: int = 2002) -> List[str]:
 class Worker:
     _options: argparse.Namespace
 
-    _pgpool: aiopg.Pool
-    _session: aiohttp.ClientSession
+    _db: Any
 
     def __init__(self, options: argparse.Namespace) -> None:
         self._options = options
+        self._db = psycopg2.connect(options.dsn, application_name='repology-vulnupdater')
 
-    async def _process_updated_cve(self, cve: CVEItem) -> None:
+    def _process_updated_cve(self, cve: CVEItem) -> None:
         cpe_matches: MutableSet[CPEMatch] = set()
 
         for node in cve.configuration_nodes:
@@ -71,9 +70,9 @@ class Worker:
 
         if cpe_matches:
             logging.info(f'updating {cve.cve_id} - {len(cpe_matches)} item(s)')
-            await update_cve(self._pgpool, cve, list(cpe_matches))
+            update_cve(self._db, cve, list(cpe_matches))
 
-    async def _process_source(self, source: Source) -> int:
+    def _process_source(self, source: Source) -> int:
         logging.debug(f'processing source {source.url}')
 
         headers = {
@@ -83,54 +82,50 @@ class Worker:
         if source.etag is not None:
             headers['if-none-match'] = source.etag
 
-        async with self._session.get(source.url, headers=headers) as resp:
-            if resp.status == 304:
-                logging.debug(f'source {source.url} was not modified')
-                await update_source(self._pgpool, source.url)
-                return 0
+        response = requests.get(source.url, stream=True, headers=headers)
+        if response.status_code == 304:
+            logging.debug(f'source {source.url} was not modified')
+            update_source(self._db, source.url)
+            return 0
 
-            if resp.status != 200:
-                logging.error(f'got bad HTTP code {resp.status} for source {source.url}')
-                await update_source(self._pgpool, source.url)
-                return 0
+        if response.status_code != 200:
+            logging.error(f'got bad HTTP code {response.status_code} for source {source.url}')
+            update_source(self._db, source.url)
+            return 0
 
-            logging.debug(f'updating source {source.url}')
+        logging.debug(f'updating source {source.url}')
 
-            num_updates = 0
+        num_updates = 0
+        max_last_modified = ''
 
-            with tempfile.NamedTemporaryFile(mode='wb') as tmpfile:
-                while (data := await resp.content.read(_CHUNK_SIZE)):
-                    tmpfile.write(data)
-                tmpfile.flush()
+        with gzip.open(response.raw) as decompressed:
+            for item in map(CVEItem.parse, JsonSlicer(decompressed, ('CVE_Items', None))):
+                if item.last_modified > source.max_last_modified:
+                    self._process_updated_cve(item)
+                    num_updates += 1
+                max_last_modified = max(max_last_modified, item.last_modified)
 
-                max_last_modified = ''
-                with gzip.open(tmpfile.name) as decompressor:
-                    for item in map(CVEItem.parse, JsonSlicer(decompressor, ('CVE_Items', None))):
-                        if item.last_modified > source.max_last_modified:
-                            await self._process_updated_cve(item)
-                            num_updates += 1
-                        max_last_modified = max(max_last_modified, item.last_modified)
+        update_source(self._db, source.url, response.headers.get('etag'), max_last_modified, num_updates)
 
-                await update_source(self._pgpool, source.url, resp.headers.get('etag'), max_last_modified, num_updates)
+        logging.debug(f'done updating source {source.url}')
 
-            logging.debug(f'done updating source {source.url}')
+        return num_updates
 
-            return num_updates
-
-    async def _loop(self) -> None:
+    def run(self) -> None:
         while True:
             logging.debug('iteration started')
 
             all_source_urls = set(generate_source_urls(self._options.start_year))
-            registered_source_urls = set(await get_registered_source_urls(self._pgpool))
+            registered_source_urls = set(get_registered_source_urls(self._db))
 
             for new_url in all_source_urls - registered_source_urls:
-                await register_source(self._pgpool, new_url)
+                register_source(self._db, new_url)
+                self._db.commit()
                 logging.info(f'registered new source {new_url}')
 
             due_sources = [
                 source
-                for source in await get_due_sources(self._pgpool, self._options.update_period)
+                for source in get_due_sources(self._db, self._options.update_period)
                 if source.url in all_source_urls
             ]
 
@@ -138,29 +133,26 @@ class Worker:
                 if self._options.once_only:
                     return
 
-                delay = await get_sleep_till_due_source(self._pgpool, self._options.update_period)
+                delay = get_sleep_till_due_source(self._db, self._options.update_period)
                 logging.debug(f'nothing to update yet - sleeping for {delay} second(s)')
-                await asyncio.sleep(delay)
+                time.sleep(delay)
                 continue
 
             num_updates = 0
             for source in due_sources:
-                num_updates += await self._process_source(source)
+                num_updates += self._process_source(source)
 
             if num_updates > 0:
                 logging.debug('updating simplified vulnerabilities information')
-                await update_simplified_vulnerabilities(self._pgpool)
+                update_simplified_vulnerabilities(self._db)
+
+            self._db.commit()
 
             if self._options.once_only:
                 return
 
-    async def run(self) -> None:
-        async with aiopg.create_pool(self._options.dsn, minsize=1, maxsize=1, timeout=60) as self._pgpool:
-            async with aiohttp.ClientSession() as self._session:
-                await self._loop()
 
-
-async def main() -> None:
+def main() -> None:
     config = {
         'DSN': 'dbname=repology user=repology password=repology',
     }
@@ -176,8 +168,8 @@ async def main() -> None:
 
     logging.basicConfig(format='%(asctime)s %(levelname)-8s %(message)s', level=logging.DEBUG if args.debug else logging.INFO)
 
-    await Worker(args).run()
+    Worker(args).run()
 
 
 if __name__ == '__main__':
-    asyncio.run(main())
+    main()

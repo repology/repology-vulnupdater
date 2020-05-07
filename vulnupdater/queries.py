@@ -16,11 +16,10 @@
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
-from typing import List, Optional
-
-import aiopg
+from typing import Any, List, Optional
 
 import psycopg2
+import psycopg2.extras
 
 from vulnupdater.cveinfo import CPEMatch, CVEItem
 
@@ -45,161 +44,154 @@ class Source:
     max_last_modified: str = ''
 
 
-async def get_registered_source_urls(pool: aiopg.Pool) -> List[str]:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute('SELECT url FROM vulnerability_sources')
-            return [row[0] for row in await cur.fetchall()]
+def get_registered_source_urls(db: Any) -> List[str]:
+    with db.cursor() as cur:
+        cur.execute('SELECT url FROM vulnerability_sources')
+        return [row[0] for row in cur.fetchall()]
 
 
-async def register_source(pool: aiopg.Pool, url: str) -> None:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute('INSERT INTO vulnerability_sources(url) VALUES(%(url)s)', {'url': url})
+def register_source(db: Any, url: str) -> None:
+    with db.cursor() as cur:
+        cur.execute('INSERT INTO vulnerability_sources(url) VALUES(%(url)s)', {'url': url})
 
 
-async def get_due_sources(pool: aiopg.Pool, update_period: float) -> List[Source]:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
+def get_due_sources(db: Any, update_period: float) -> List[Source]:
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                url,
+                etag,
+                max_last_modified
+            FROM vulnerability_sources
+            WHERE last_update IS NULL OR now() > last_update + INTERVAL '%(update_period)s SECONDS'
+            ORDER BY url
+            """,
+            {
+                'update_period': update_period
+            }
+        )
+
+        return [
+            Source(
+                url=row[0],
+                etag=row[1],
+                max_last_modified=row[2]
+            ) for row in cur.fetchall()
+        ]
+
+
+def get_sleep_till_due_source(db: Any, update_period: float) -> float:
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            SELECT
+                min(last_update + INTERVAL '%(update_period)s SECONDS' - now())
+            FROM vulnerability_sources
+            WHERE last_update + INTERVAL '%(update_period)s SECONDS' > now()
+            """,
+            {
+                'update_period': update_period
+            }
+        )
+        return (cur.fetchone())[0].total_seconds() or 0.01
+
+
+def update_source(db: Any, url: str, etag: Optional[str] = None, max_last_modified: Optional[str] = None, num_updates: int = 0) -> None:
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            UPDATE vulnerability_sources
+            SET
+                etag = coalesce(%(etag)s, etag),
+                max_last_modified = coalesce(%(max_last_modified)s, max_last_modified),
+                last_update = now(),
+                total_updates = total_updates + %(num_updates)s
+            WHERE
+                url = %(url)s
+            """,
+            {
+                'url': url,
+                'etag': etag,
+                'max_last_modified': max_last_modified,
+                'num_updates': num_updates,
+            }
+        )
+
+
+def update_cve(db: Any, cve: CVEItem, cpe_matches: List[CPEMatch]) -> None:
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            DELETE
+            FROM vulnerabilities
+            WHERE cve_id = %(cve_id)s;
+
+            INSERT
+            INTO vulnerabilities (
+                cve_id,
+                cpe_vendor,
+                cpe_product,
+                start_version,
+                end_version,
+                start_version_excluded,
+                end_version_excluded
+            )
+            SELECT
+                %(cve_id)s,
+                unnest(%(matches)s)::json->>0,
+                unnest(%(matches)s)::json->>1,
+                unnest(%(matches)s)::json->>2,
+                unnest(%(matches)s)::json->>3,
+                (unnest(%(matches)s)::json->>4)::boolean,
+                (unnest(%(matches)s)::json->>5)::boolean
+            """,
+            {
+                'cve_id': cve.cve_id,
+                'matches':
+                [
+                    psycopg2.extras.Json(
+                        [
+                            match.vendor,
+                            match.product,
+                            match.start_version,
+                            match.end_version,
+                            match.start_version_excluded,
+                            match.end_version_excluded,
+                        ]
+                    ) for match in cpe_matches
+                ]
+            }
+        )
+
+
+def update_simplified_vulnerabilities(db: Any) -> None:
+    with db.cursor() as cur:
+        cur.execute(
+            """
+            DELETE FROM vulnerabilities_simplified;
+
+            WITH vulnerabilities_with_covering_ranges AS (
                 SELECT
-                    url,
-                    etag,
-                    max_last_modified
-                FROM vulnerability_sources
-                WHERE last_update IS NULL OR now() > last_update + INTERVAL '%(update_period)s SECONDS'
-                ORDER BY url
-                """,
-                {
-                    'update_period': update_period
-                }
-            )
-
-            return [
-                Source(
-                    url=row[0],
-                    etag=row[1],
-                    max_last_modified=row[2]
-                ) for row in await cur.fetchall()
-            ]
-
-
-async def get_sleep_till_due_source(pool: aiopg.Pool, update_period: float) -> float:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                SELECT
-                    min(last_update + INTERVAL '%(update_period)s SECONDS' - now())
-                FROM vulnerability_sources
-                WHERE last_update + INTERVAL '%(update_period)s SECONDS' > now()
-                """,
-                {
-                    'update_period': update_period
-                }
-            )
-            return (await cur.fetchone())[0].total_seconds() or 0.01
-
-
-async def update_source(pool: aiopg.Pool, url: str, etag: Optional[str] = None, max_last_modified: Optional[str] = None, num_updates: int = 0) -> None:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                UPDATE vulnerability_sources
-                SET
-                    etag = coalesce(%(etag)s, etag),
-                    max_last_modified = coalesce(%(max_last_modified)s, max_last_modified),
-                    last_update = now(),
-                    total_updates = total_updates + %(num_updates)s
-                WHERE
-                    url = %(url)s
-                """,
-                {
-                    'url': url,
-                    'etag': etag,
-                    'max_last_modified': max_last_modified,
-                    'num_updates': num_updates,
-                }
-            )
-
-
-async def update_cve(pool: aiopg.Pool, cve: CVEItem, cpe_matches: List[CPEMatch]) -> None:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                DELETE
+                    cpe_vendor,
+                    cpe_product,
+                    start_version,
+                    end_version,
+                    start_version_excluded,
+                    end_version_excluded,
+                    max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
                 FROM vulnerabilities
-                WHERE cve_id = %(cve_id)s;
-
-                INSERT
-                INTO vulnerabilities (
-                    cve_id,
-                    cpe_vendor,
-                    cpe_product,
-                    start_version,
-                    end_version,
-                    start_version_excluded,
-                    end_version_excluded
-                )
-                SELECT
-                    %(cve_id)s,
-                    unnest(%(matches)s)::json->>0,
-                    unnest(%(matches)s)::json->>1,
-                    unnest(%(matches)s)::json->>2,
-                    unnest(%(matches)s)::json->>3,
-                    (unnest(%(matches)s)::json->>4)::boolean,
-                    (unnest(%(matches)s)::json->>5)::boolean
-                """,
-                {
-                    'cve_id': cve.cve_id,
-                    'matches':
-                    [
-                        psycopg2.extras.Json(
-                            [
-                                match.vendor,
-                                match.product,
-                                match.start_version,
-                                match.end_version,
-                                match.start_version_excluded,
-                                match.end_version_excluded,
-                            ]
-                        ) for match in cpe_matches
-                    ]
-                }
             )
-
-
-async def update_simplified_vulnerabilities(pool: aiopg.Pool) -> None:
-    async with pool.acquire() as conn:
-        async with conn.cursor() as cur:
-            await cur.execute(
-                """
-                DELETE FROM vulnerabilities_simplified;
-
-                WITH vulnerabilities_with_covering_ranges AS (
-                    SELECT
-                        cpe_vendor,
-                        cpe_product,
-                        start_version,
-                        end_version,
-                        start_version_excluded,
-                        end_version_excluded,
-                        max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
-                    FROM vulnerabilities
-                )
-                INSERT INTO vulnerabilities_simplified
-                SELECT DISTINCT
-                    cpe_vendor,
-                    cpe_product,
-                    start_version,
-                    end_version,
-                    start_version_excluded,
-                    end_version_excluded
-                FROM vulnerabilities_with_covering_ranges
-                WHERE
-                    coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
-                """
-            )
+            INSERT INTO vulnerabilities_simplified
+            SELECT DISTINCT
+                cpe_vendor,
+                cpe_product,
+                start_version,
+                end_version,
+                start_version_excluded,
+                end_version_excluded
+            FROM vulnerabilities_with_covering_ranges
+            WHERE
+                coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
+            """
+        )
