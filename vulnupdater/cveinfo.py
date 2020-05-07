@@ -15,8 +15,8 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass, field
-from typing import Any, List, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Optional
 
 from vulnupdater.util import escaped_split
 
@@ -31,22 +31,16 @@ class CPEMatch:
     start_version_excluded: bool = False
     end_version_excluded: bool = False
 
-    def __repr__(self) -> str:
-        return f'{"+" if self.vulnerable else "-"}{self.vendor}:{self.product} {"(" if self.start_version_excluded else "["}{self.start_version}, {self.end_version}{")" if self.end_version_excluded else "]"}'
-
-    @staticmethod
-    def parse(data: Any) -> 'CPEMatch':
+    def __init__(self, data: Any) -> None:
         cpe_uri = escaped_split(data['cpe23Uri'], ':')
 
-        res = CPEMatch(
-            vulnerable=data['vulnerable'],
-            vendor=cpe_uri[3],
-            product=cpe_uri[4],
-        )
+        self.vulnerable = data['vulnerable']
+        self.vendor = cpe_uri[3]
+        self.product = cpe_uri[4]
 
         if cpe_uri[5] != '*':
-            res.start_version = cpe_uri[5]
-            res.end_version = cpe_uri[5]
+            self.start_version = cpe_uri[5]
+            self.end_version = cpe_uri[5]
 
             assert('versionEndExcluding' not in data)
             assert('versionEndIncluding' not in data)
@@ -54,50 +48,15 @@ class CPEMatch:
             assert('versionStartIncluding' not in data)
         else:
             if 'versionStartExcluding' in data:
-                res.start_version = data['versionStartExcluding']
-                res.start_version_excluded = True
+                self.start_version = data['versionStartExcluding']
+                self.start_version_excluded = True
             if 'versionStartIncluding' in data:
-                res.start_version = data['versionStartIncluding']
+                self.start_version = data['versionStartIncluding']
             if 'versionEndExcluding' in data:
-                res.end_version = data['versionEndExcluding']
-                res.end_version_excluded = True
+                self.end_version = data['versionEndExcluding']
+                self.end_version_excluded = True
             if 'versionEndIncluding' in data:
-                res.end_version = data['versionEndIncluding']
+                self.end_version = data['versionEndIncluding']
 
-        return res
-
-
-@dataclass
-class CVEConfigurationNode:
-    operator: str
-    childs: List[Union['CVEConfigurationNode', CPEMatch]] = field(default_factory=list)
-
-    @staticmethod
-    def parse(data: Any) -> 'CVEConfigurationNode':
-        res = CVEConfigurationNode(
-            operator=data['operator']
-        )
-
-        for child in data.get('children', []):
-            res.childs.append(CVEConfigurationNode.parse(child))
-
-        for cpe_match in data.get('cpe_match', []):
-            res.childs.append(CPEMatch.parse(cpe_match))
-
-        return res
-
-
-@dataclass
-class CVEItem:
-    cve_id: str
-    last_modified: str
-
-    configuration_nodes: List[CVEConfigurationNode] = field(default_factory=list)
-
-    @staticmethod
-    def parse(data: Any) -> 'CVEItem':
-        return CVEItem(
-            cve_id=data['cve']['CVE_data_meta']['ID'],
-            last_modified=data['lastModifiedDate'],
-            configuration_nodes=[CVEConfigurationNode.parse(node) for node in data['configurations']['nodes']]
-        )
+    def __repr__(self) -> str:
+        return f'{"+" if self.vulnerable else "-"}{self.vendor}:{self.product} {"(" if self.start_version_excluded else "["}{self.start_version}, {self.end_version}{")" if self.end_version_excluded else "]"}'

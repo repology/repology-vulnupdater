@@ -15,142 +15,97 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from dataclasses import dataclass
-from typing import Any, List, Optional
+from typing import Any, Iterable, List, Optional
 
 import psycopg2
 import psycopg2.extras
 
-from vulnupdater.cveinfo import CPEMatch, CVEItem
+from vulnupdater.cveinfo import CPEMatch
+from vulnupdater.sources import Source
 
 
-__all__ = [
-    'Source',
-    'get_due_sources',
-    'get_registered_source_urls',
-    'get_sleep_till_due_source',
-    'register_source',
-    'update_cve',
-    'update_simplified_vulnerabilities',
-    'update_source',
-]
+def fill_sources_statuses(db: Any, sources: List[Source]) -> None:
+    source_by_url = {source.url: source for source in sources}
 
-
-@dataclass
-class Source:
-    url: str
-
-    etag: Optional[str] = None
-    max_last_modified: str = ''
-
-
-def get_registered_source_urls(db: Any) -> List[str]:
-    with db.cursor() as cur:
-        cur.execute('SELECT url FROM vulnerability_sources')
-        return [row[0] for row in cur.fetchall()]
-
-
-def register_source(db: Any, url: str) -> None:
-    with db.cursor() as cur:
-        cur.execute('INSERT INTO vulnerability_sources(url) VALUES(%(url)s)', {'url': url})
-
-
-def get_due_sources(db: Any, update_period: float) -> List[Source]:
     with db.cursor() as cur:
         cur.execute(
             """
             SELECT
                 url,
                 etag,
-                max_last_modified
+                now() - last_update AS age
             FROM vulnerability_sources
-            WHERE last_update IS NULL OR now() > last_update + INTERVAL '%(update_period)s SECONDS'
             ORDER BY url
             """,
             {
-                'update_period': update_period
+                'urls': [source.url for source in sources]
             }
         )
 
-        return [
-            Source(
-                url=row[0],
-                etag=row[1],
-                max_last_modified=row[2]
-            ) for row in cur.fetchall()
-        ]
+        for url, etag, age in cur.fetchall():
+            if url in source_by_url:
+                source_by_url[url].etag = etag
+                source_by_url[url].age = age.total_seconds()
 
 
-def get_sleep_till_due_source(db: Any, update_period: float) -> float:
+def update_source(db: Any, url: str, etag: Optional[str] = None, num_updates: int = 0) -> None:
     with db.cursor() as cur:
         cur.execute(
             """
-            SELECT
-                min(last_update + INTERVAL '%(update_period)s SECONDS' - now())
-            FROM vulnerability_sources
-            WHERE last_update + INTERVAL '%(update_period)s SECONDS' > now()
-            """,
-            {
-                'update_period': update_period
-            }
-        )
-        return (cur.fetchone())[0].total_seconds() or 0.01
-
-
-def update_source(db: Any, url: str, etag: Optional[str] = None, max_last_modified: Optional[str] = None, num_updates: int = 0) -> None:
-    with db.cursor() as cur:
-        cur.execute(
-            """
-            UPDATE vulnerability_sources
+            INSERT INTO vulnerability_sources(
+                url,
+                etag,
+                last_update,
+                total_updates
+            )
+            VALUES (
+                %(url)s,
+                %(etag)s,
+                now(),
+                %(num_updates)s
+            )
+            ON CONFLICT(url) DO UPDATE
             SET
-                etag = coalesce(%(etag)s, etag),
-                max_last_modified = coalesce(%(max_last_modified)s, max_last_modified),
+                etag = coalesce(%(etag)s, vulnerability_sources.etag),
                 last_update = now(),
-                total_updates = total_updates + %(num_updates)s
-            WHERE
-                url = %(url)s
+                total_updates = vulnerability_sources.total_updates + %(num_updates)s
             """,
             {
                 'url': url,
                 'etag': etag,
-                'max_last_modified': max_last_modified,
                 'num_updates': num_updates,
             }
         )
 
 
-def update_cve(db: Any, cve: CVEItem, cpe_matches: List[CPEMatch]) -> None:
+def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMatch]) -> int:
     with db.cursor() as cur:
         cur.execute(
             """
-            DELETE
-            FROM vulnerabilities
-            WHERE cve_id = %(cve_id)s;
-
             INSERT
-            INTO vulnerabilities (
+            INTO cves (
                 cve_id,
-                cpe_vendor,
-                cpe_product,
-                start_version,
-                end_version,
-                start_version_excluded,
-                end_version_excluded
+                last_modified,
+                matches
             )
-            SELECT
+            VALUES (
                 %(cve_id)s,
-                unnest(%(matches)s)::json->>0,
-                unnest(%(matches)s)::json->>1,
-                unnest(%(matches)s)::json->>2,
-                unnest(%(matches)s)::json->>3,
-                (unnest(%(matches)s)::json->>4)::boolean,
-                (unnest(%(matches)s)::json->>5)::boolean
+                %(last_modified)s,
+                %(matches)s
+            )
+            ON CONFLICT(cve_id) DO UPDATE
+            SET
+                last_modified = %(last_modified)s,
+                matches = %(matches)s
+            WHERE
+                %(last_modified)s > cves.last_modified
+            RETURNING 1
             """,
             {
-                'cve_id': cve.cve_id,
-                'matches':
-                [
-                    psycopg2.extras.Json(
+                'cve_id': cve_id,
+                'last_modified': last_modified,
+                'matches': psycopg2.extras.Json(
+                    [
                         [
                             match.vendor,
                             match.product,
@@ -159,19 +114,31 @@ def update_cve(db: Any, cve: CVEItem, cpe_matches: List[CPEMatch]) -> None:
                             match.start_version_excluded,
                             match.end_version_excluded,
                         ]
-                    ) for match in cpe_matches
-                ]
+                        for match in matches
+                    ]
+                )
             }
         )
 
+        return sum(row[0] for row in cur.fetchall())
 
-def update_simplified_vulnerabilities(db: Any) -> None:
+
+def update_vulnerable_versions(db: Any) -> None:
     with db.cursor() as cur:
         cur.execute(
             """
-            DELETE FROM vulnerabilities_simplified;
+            DELETE FROM vulnerable_versions;
 
-            WITH vulnerabilities_with_covering_ranges AS (
+            WITH expanded_matches AS (
+                SELECT
+                    jsonb_array_elements(matches)->>0 AS cpe_vendor,
+                    jsonb_array_elements(matches)->>1 AS cpe_product,
+                    jsonb_array_elements(matches)->>2 AS start_version,
+                    jsonb_array_elements(matches)->>3 AS end_version,
+                    (jsonb_array_elements(matches)->>4)::boolean AS start_version_excluded,
+                    (jsonb_array_elements(matches)->>5)::boolean AS end_version_excluded
+                FROM cves
+            ), matches_with_covering_ranges AS (
                 SELECT
                     cpe_vendor,
                     cpe_product,
@@ -180,9 +147,9 @@ def update_simplified_vulnerabilities(db: Any) -> None:
                     start_version_excluded,
                     end_version_excluded,
                     max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
-                FROM vulnerabilities
+                FROM expanded_matches
             )
-            INSERT INTO vulnerabilities_simplified
+            INSERT INTO vulnerable_versions
             SELECT DISTINCT
                 cpe_vendor,
                 cpe_product,
@@ -190,7 +157,7 @@ def update_simplified_vulnerabilities(db: Any) -> None:
                 end_version,
                 start_version_excluded,
                 end_version_excluded
-            FROM vulnerabilities_with_covering_ranges
+            FROM matches_with_covering_ranges
             WHERE
                 coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
             """
