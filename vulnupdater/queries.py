@@ -82,23 +82,27 @@ def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMa
     with db.cursor() as cur:
         cur.execute(
             """
-            INSERT
-            INTO cves (
-                cve_id,
-                last_modified,
-                matches
+            WITH updated_cves AS (
+                INSERT INTO cves (
+                    cve_id,
+                    last_modified,
+                    matches
+                )
+                VALUES (
+                    %(cve_id)s,
+                    %(last_modified)s,
+                    %(matches)s
+                )
+                ON CONFLICT(cve_id) DO UPDATE
+                SET
+                    last_modified = %(last_modified)s,
+                    matches = %(matches)s
+                WHERE
+                    %(last_modified)s > cves.last_modified
+                RETURNING cve_id
             )
-            VALUES (
-                %(cve_id)s,
-                %(last_modified)s,
-                %(matches)s
-            )
-            ON CONFLICT(cve_id) DO UPDATE
-            SET
-                last_modified = %(last_modified)s,
-                matches = %(matches)s
-            WHERE
-                %(last_modified)s > cves.last_modified
+            INSERT INTO cve_updates
+            SELECT cve_id FROM updated_cves
             RETURNING 1
             """,
             {
