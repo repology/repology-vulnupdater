@@ -86,12 +86,14 @@ def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMa
                 INSERT INTO cves (
                     cve_id,
                     last_modified,
-                    matches
+                    matches,
+                    cpe_pairs
                 )
                 VALUES (
                     %(cve_id)s,
                     %(last_modified)s,
-                    %(matches)s
+                    %(matches)s,
+                    %(cpe_pairs)s
                 )
                 ON CONFLICT(cve_id) DO UPDATE
                 SET
@@ -120,7 +122,8 @@ def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMa
                         ]
                         for match in matches
                     ]
-                )
+                ),
+                'cpe_pairs': list(set(f'{match.vendor}:{match.product}' for match in matches)) or None
             }
         )
 
