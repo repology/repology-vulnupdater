@@ -48,6 +48,7 @@ class Worker:
 
     def _process_cve(self, cve: Any) -> int:
         cve_id: str = cve['cve']['CVE_data_meta']['ID']
+        published: str = cve['publishedDate']
         last_modified: str = cve['lastModifiedDate']
         usable_matches: MutableSet[CPEMatch] = set()
 
@@ -62,7 +63,7 @@ class Worker:
                 if match.vulnerable and match.end_version and match.end_version != '-':
                     usable_matches.add(match)
 
-        return queries.update_cve(self._db, cve_id, last_modified, usable_matches)
+        return queries.update_cve(self._db, cve_id, published, last_modified, usable_matches)
 
     def _process_source(self, source: Source) -> int:
         logging.debug(f'source {source.url}: start update')

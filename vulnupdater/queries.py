@@ -78,25 +78,28 @@ def update_source(db: Any, url: str, etag: Optional[str] = None, num_updates: in
         )
 
 
-def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMatch]) -> int:
+def update_cve(db: Any, cve_id: str, published: str, last_modified: str, matches: Iterable[CPEMatch]) -> int:
     with db.cursor() as cur:
         cur.execute(
             """
             WITH updated_cves AS (
                 INSERT INTO cves (
                     cve_id,
+                    published,
                     last_modified,
                     matches,
                     cpe_pairs
                 )
                 VALUES (
                     %(cve_id)s,
+                    %(published)s,
                     %(last_modified)s,
                     %(matches)s,
                     %(cpe_pairs)s
                 )
                 ON CONFLICT(cve_id) DO UPDATE
                 SET
+                    published = %(published)s,  -- not expected to change in fact
                     last_modified = %(last_modified)s,
                     matches = %(matches)s
                 WHERE
@@ -109,6 +112,7 @@ def update_cve(db: Any, cve_id: str, last_modified: str, matches: Iterable[CPEMa
             """,
             {
                 'cve_id': cve_id,
+                'published': published,
                 'last_modified': last_modified,
                 'matches': psycopg2.extras.Json(
                     [
