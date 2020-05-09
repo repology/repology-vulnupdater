@@ -45,7 +45,7 @@ def fill_sources_statuses(db: Any, sources: List[Source]) -> None:
         for url, etag, age in cur.fetchall():
             if url in source_by_url:
                 source_by_url[url].etag = etag
-                source_by_url[url].age = age.total_seconds()
+                source_by_url[url].age = None if age is None else age.total_seconds()
 
 
 def update_source(db: Any, url: str, etag: Optional[str] = None, num_updates: int = 0) -> None:
