@@ -115,6 +115,7 @@ class Worker:
                 wait_time = min(wait_time, source.update_period - source.age)
 
         if not sources_to_update:
+            self._db.rollback()
             return wait_time
 
         num_updated_cves = 0
