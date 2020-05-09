@@ -101,7 +101,8 @@ def update_cve(db: Any, cve_id: str, published: str, last_modified: str, matches
                 SET
                     published = %(published)s,  -- not expected to change in fact
                     last_modified = %(last_modified)s,
-                    matches = %(matches)s
+                    matches = %(matches)s,
+                    cpe_pairs = %(cpe_pairs)s
                 WHERE
                     %(last_modified)s > cves.last_modified
                 RETURNING cve_id
