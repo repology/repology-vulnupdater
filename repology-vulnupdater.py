@@ -95,7 +95,7 @@ class Worker:
 
         queries.update_source(self._db, source.url, response.headers.get('etag'), num_updates)
 
-        logging.debug(f'source {source.url}: update done')
+        logging.debug(f'source {source.url}: update done ({num_updates} CVEs updated)')
 
         return num_updates
 
@@ -123,7 +123,7 @@ class Worker:
             num_updated_cves += self._process_source(source)
 
         if num_updated_cves > 0:
-            logging.debug('updating simplified vulnerabilities information')
+            logging.debug(f'updating simplified vulnerabilities information ({num_updated_cves} CVEs updated)')
             queries.update_vulnerable_versions(self._db)
 
         self._db.commit()
