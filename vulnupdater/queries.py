@@ -105,11 +105,20 @@ def update_cve(db: Any, cve_id: str, published: str, last_modified: str, matches
                     cpe_pairs = %(cpe_pairs)s
                 WHERE
                     %(last_modified)s > cves.last_modified
-                RETURNING cve_id
+                RETURNING cpe_pairs
+            ), register_cpe_updates AS (
+                INSERT INTO cpe_updates (
+                    cpe_vendor,
+                    cpe_product
+                )
+                SELECT
+                    split_part(unnest(cpe_pairs), ':', 1) AS cpe_vendor,
+                    split_part(unnest(cpe_pairs), ':', 2) AS cpe_product
+                FROM
+                    updated_cves
             )
-            INSERT INTO cve_updates
-            SELECT cve_id FROM updated_cves
-            RETURNING 1
+            SELECT 1
+            FROM updated_cves
             """,
             {
                 'cve_id': cve_id,
