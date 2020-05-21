@@ -80,6 +80,18 @@ def update_source(db: Any, url: str, etag: Optional[str] = None, num_updates: in
 
 def update_cve(db: Any, cve_id: str, published: str, last_modified: str, matches: Iterable[CPEMatch]) -> int:
     with db.cursor() as cur:
+        matches_for_json = [
+            [
+                match.vendor,
+                match.product,
+                match.start_version,
+                match.end_version,
+                match.start_version_excluded,
+                match.end_version_excluded,
+            ]
+            for match in matches
+        ]
+
         cur.execute(
             """
             WITH updated_cves AS (
@@ -124,19 +136,7 @@ def update_cve(db: Any, cve_id: str, published: str, last_modified: str, matches
                 'cve_id': cve_id,
                 'published': published,
                 'last_modified': last_modified,
-                'matches': psycopg2.extras.Json(
-                    [
-                        [
-                            match.vendor,
-                            match.product,
-                            match.start_version,
-                            match.end_version,
-                            match.start_version_excluded,
-                            match.end_version_excluded,
-                        ]
-                        for match in matches
-                    ]
-                ),
+                'matches': psycopg2.extras.Json(matches_for_json) if matches_for_json else None,
                 'cpe_pairs': list(set(f'{match.vendor}:{match.product}' for match in matches)) or None
             }
         )
