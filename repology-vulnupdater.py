@@ -60,7 +60,7 @@ class Worker:
                 continue
 
             for match in map(CPEMatch, configuration['cpe_match']):
-                if match.vulnerable and match.end_version and match.end_version != '-':
+                if match.vulnerable and match.part == 'a' and match.end_version and match.end_version != '-':
                     usable_matches.add(match)
 
         return queries.update_cve(self._db, cve_id, published, last_modified, usable_matches)

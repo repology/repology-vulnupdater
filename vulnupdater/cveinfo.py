@@ -24,6 +24,7 @@ from vulnupdater.util import escaped_split
 @dataclass(unsafe_hash=True)
 class CPEMatch:
     vulnerable: bool
+    part: str
     vendor: str
     product: str
     start_version: Optional[str] = None
@@ -35,6 +36,7 @@ class CPEMatch:
         cpe_uri = escaped_split(data['cpe23Uri'], ':')
 
         self.vulnerable = data['vulnerable']
+        self.part = cpe_uri[2]
         self.vendor = cpe_uri[3]
         self.product = cpe_uri[4]
 
