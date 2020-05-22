@@ -15,26 +15,23 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import List
+from typing import IO
+
+from vulnupdater.cpe import CPE
+from vulnupdater.source import Source
+from vulnupdater.sources.cpedict.batcher import CpeDictBatcher
+from vulnupdater.sources.cpedict.parsing import iter_cpe_dict
 
 
-def escaped_split(string: str, delimiter: str, escape: str = '\\') -> List[str]:
-    escaped = False
-    current = ''
-    res = []
+class CpeDictSource(Source):
+    def get_type(self) -> str:
+        return 'cpe_dict'
 
-    for char in string:
-        if escaped:
-            current += char
-            escaped = False
-        elif char == escape:
-            escaped = True
-        elif char == delimiter:
-            res.append(current)
-            current = ''
-        else:
-            current += char
+    def _process(self, stream: IO[bytes]) -> bool:
+        with CpeDictBatcher(self._db, 1000) as batcher:
+            for cpe in map(CPE, iter_cpe_dict(stream)):
+                if cpe.part == 'a':
+                    batcher.add(cpe.vendor, cpe.product)
 
-    res.append(current)
-
-    return res
+            self._num_updates += batcher.get_num_updates()
+            return batcher.get_num_updates() > 0

@@ -18,7 +18,7 @@
 from dataclasses import dataclass
 from typing import Any, Optional
 
-from vulnupdater.util import escaped_split
+from vulnupdater.cpe import CPE
 
 
 @dataclass(unsafe_hash=True)
@@ -33,16 +33,16 @@ class CPEMatch:
     end_version_excluded: bool = False
 
     def __init__(self, data: Any) -> None:
-        cpe_uri = escaped_split(data['cpe23Uri'], ':')
+        cpe = CPE(data['cpe23Uri'])
 
         self.vulnerable = data['vulnerable']
-        self.part = cpe_uri[2]
-        self.vendor = cpe_uri[3]
-        self.product = cpe_uri[4]
+        self.part = cpe.part
+        self.vendor = cpe.vendor
+        self.product = cpe.product
 
-        if cpe_uri[5] != '*':
-            self.start_version = cpe_uri[5]
-            self.end_version = cpe_uri[5]
+        if cpe.version != '*':
+            self.start_version = cpe.version
+            self.end_version = cpe.version
 
             assert('versionEndExcluding' not in data)
             assert('versionEndIncluding' not in data)

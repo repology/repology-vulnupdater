@@ -14,19 +14,3 @@
 #
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
-
-import unittest
-
-from vulnupdater.util import escaped_split
-
-
-class TestHostManager(unittest.TestCase):
-    def test_escaped_split(self):
-        self.assertEqual(escaped_split('1:2:3', ':'), ['1', '2', '3'])
-        self.assertEqual(escaped_split('::', ':'), ['', '', ''])
-        self.assertEqual(escaped_split('\\::', ':'), [':', ''])
-        self.assertEqual(escaped_split('\\\\::', ':'), ['\\', '', ''])
-
-
-if __name__ == '__main__':
-    unittest.main()

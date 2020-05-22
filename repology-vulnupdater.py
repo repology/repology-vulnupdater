@@ -18,23 +18,20 @@
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
 import argparse
-import gzip
+import datetime
 import logging
 import time
-from typing import Any, MutableSet, Optional
-
-from jsonslicer import JsonSlicer
+from typing import Any, Iterable, List, Optional
 
 import psycopg2
 
-import requests
-
-import vulnupdater.queries as queries
-from vulnupdater.cveinfo import CPEMatch
-from vulnupdater.sources import FAST_UPDATE_PERIOD, Source, generate_sources
+from vulnupdater.source import Source
+from vulnupdater.sources.cpedict import CpeDictSource
+from vulnupdater.sources.cvefeed import CveFeedSource
 
 
-_USER_AGENT = 'repology-vulnupdater/0 (+{}/bots)'.format('https://repology.org')
+_FAST_UPDATE_PERIOD = 60 * 10  # for CVE modified feed
+_SLOW_UPDATE_PERIOD = 60 * 60 * 24  # for other CVE feeds and CPE dict
 
 
 class Worker:
@@ -46,93 +43,89 @@ class Worker:
         self._options = options
         self._db = psycopg2.connect(options.dsn, application_name='repology-vulnupdater')
 
-    def _process_cve(self, cve: Any) -> int:
-        cve_id: str = cve['cve']['CVE_data_meta']['ID']
-        published: str = cve['publishedDate']
-        last_modified: str = cve['lastModifiedDate']
-        usable_matches: MutableSet[CPEMatch] = set()
+    def _generate_sources(self) -> Iterable[Source]:
+        if not self._options.fast_only:
+            for year in range(2002, datetime.datetime.now().year + 1):
+                yield CveFeedSource(self._db, f'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-{year}.json.gz', _SLOW_UPDATE_PERIOD)
+        yield CveFeedSource(self._db, 'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz', _FAST_UPDATE_PERIOD)
+        yield CpeDictSource(self._db, 'https://nvd.nist.gov/feeds/xml/cpe/dictionary/official-cpe-dictionary_v2.3.xml.gz', _SLOW_UPDATE_PERIOD)
 
-        for configuration in cve['configurations']['nodes']:
-            if configuration['operator'] != 'OR':
-                continue  # not supported
+    def _update_vulnerable_versions(self) -> None:
+        with self._db.cursor() as cur:
+            cur.execute(
+                """
+                DELETE FROM vulnerable_versions;
 
-            if 'cpe_match' not in configuration:
-                continue
-
-            for match in map(CPEMatch, configuration['cpe_match']):
-                if match.vulnerable and match.part == 'a' and match.end_version and match.end_version != '-':
-                    usable_matches.add(match)
-
-        return queries.update_cve(self._db, cve_id, published, last_modified, usable_matches)
-
-    def _process_source(self, source: Source) -> int:
-        logging.debug(f'source {source.url}: start update')
-
-        headers = {
-            'user-agent': _USER_AGENT
-        }
-
-        if source.etag is not None:
-            headers['if-none-match'] = source.etag
-
-        response = requests.get(source.url, stream=True, headers=headers)
-        if response.status_code == 304:
-            logging.debug(f'source {source.url}: not modified')
-            queries.update_source(self._db, source.url)
-            return 0
-
-        if response.status_code != 200:
-            logging.error(f'source {source.url}: got bad HTTP code {response.status_code}')
-            queries.update_source(self._db, source.url)
-            return 0
-
-        logging.debug(f'source {source.url}: processing')
-
-        num_updates = 0
-        with gzip.open(response.raw) as decompressed:
-            for item in JsonSlicer(decompressed, ('CVE_Items', None)):
-                num_updates += self._process_cve(item)
-
-        queries.update_source(self._db, source.url, response.headers.get('etag'), num_updates)
-
-        logging.debug(f'source {source.url}: update done ({num_updates} CVEs updated)')
-
-        return num_updates
+                WITH expanded_matches AS (
+                    SELECT
+                        jsonb_array_elements(matches)->>0 AS cpe_vendor,
+                        jsonb_array_elements(matches)->>1 AS cpe_product,
+                        jsonb_array_elements(matches)->>2 AS start_version,
+                        jsonb_array_elements(matches)->>3 AS end_version,
+                        (jsonb_array_elements(matches)->>4)::boolean AS start_version_excluded,
+                        (jsonb_array_elements(matches)->>5)::boolean AS end_version_excluded
+                    FROM cves
+                ), matches_with_covering_ranges AS (
+                    SELECT
+                        cpe_vendor,
+                        cpe_product,
+                        start_version,
+                        end_version,
+                        start_version_excluded,
+                        end_version_excluded,
+                        max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
+                    FROM expanded_matches
+                )
+                INSERT INTO vulnerable_versions
+                SELECT DISTINCT
+                    cpe_vendor,
+                    cpe_product,
+                    start_version,
+                    end_version,
+                    start_version_excluded,
+                    end_version_excluded
+                FROM matches_with_covering_ranges
+                WHERE
+                    coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
+                """
+            )
 
     def _iteration(self) -> Optional[float]:
         logging.debug('iteration started')
 
-        sources = list(generate_sources(self._options.fast_only))
+        sources = list(self._generate_sources())
+        sources_to_update: List[Source] = []
 
-        queries.fill_sources_statuses(self._db, sources)
-
-        sources_to_update = []
-        wait_time = float(FAST_UPDATE_PERIOD)
+        wait_time = float(_FAST_UPDATE_PERIOD)
         for source in sources:
-            if source.age is None or source.age > source.update_period:
-                sources_to_update.append(source)
+            if (source_wait_time := source.get_time_to_update()) > 0:
+                wait_time = min(wait_time, source_wait_time)
             else:
-                wait_time = min(wait_time, source.update_period - source.age)
+                sources_to_update.append(source)
 
         if not sources_to_update:
-            self._db.rollback()
+            logging.debug('nothing to do in this iteration')
             return wait_time
 
-        num_updated_cves = 0
+        had_cve_updates = False
         for source in sources_to_update:
-            num_updated_cves += self._process_source(source)
+            if source.update() and source.get_type() == 'cve_feed':
+                had_cve_updates = True
 
-        if num_updated_cves > 0:
-            logging.debug(f'updating simplified vulnerabilities information ({num_updated_cves} CVEs updated)')
-            queries.update_vulnerable_versions(self._db)
-
-        self._db.commit()
+        if had_cve_updates:
+            logging.debug('updating simplified vulnerabilities information')
+            self._update_vulnerable_versions()
 
         return None
 
     def run(self) -> None:
         while True:
-            wait_time = self._iteration()
+            try:
+                wait_time = self._iteration()
+                self._db.commit()
+            except:
+                self._db.rollback()
+                raise
 
             if self._options.once_only:
                 return
