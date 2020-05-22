@@ -109,7 +109,7 @@ class Worker:
 
         had_cve_updates = False
         for source in sources_to_update:
-            if source.update() and source.get_type() == 'cve_feed':
+            if source.update() and source.get_type() == CveFeedSource.TYPE:
                 had_cve_updates = True
 
         if had_cve_updates:

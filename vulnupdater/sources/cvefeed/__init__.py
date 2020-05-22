@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import IO, MutableSet
+from typing import ClassVar, IO, MutableSet
 
 from jsonslicer import JsonSlicer
 
@@ -26,8 +26,10 @@ from vulnupdater.sources.cvefeed.match import CPEMatch
 
 
 class CveFeedSource(Source):
+    TYPE: ClassVar[str] = 'cve_feed'
+
     def get_type(self) -> str:
-        return 'cve_feed'
+        return CveFeedSource.TYPE
 
     def _process(self, stream: IO[bytes]) -> bool:
         num_updates = 0

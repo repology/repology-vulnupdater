@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import IO
+from typing import ClassVar, IO
 
 from vulnupdater.cpe import CPE
 from vulnupdater.source import Source
@@ -24,8 +24,10 @@ from vulnupdater.sources.cpedict.parsing import iter_cpe_dict
 
 
 class CpeDictSource(Source):
+    TYPE: ClassVar[str] = 'cpe_dict'
+
     def get_type(self) -> str:
-        return 'cpe_dict'
+        return CpeDictSource.TYPE
 
     def _process(self, stream: IO[bytes]) -> bool:
         with CpeDictBatcher(self._db, 1000) as batcher:
