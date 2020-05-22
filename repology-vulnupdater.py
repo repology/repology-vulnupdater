@@ -91,7 +91,7 @@ class Worker:
             )
 
     def _iteration(self) -> Optional[float]:
-        logging.debug('iteration started')
+        logging.info('iteration started')
 
         sources = list(self._generate_sources())
         sources_to_update: List[Source] = []
@@ -104,7 +104,7 @@ class Worker:
                 sources_to_update.append(source)
 
         if not sources_to_update:
-            logging.debug('nothing to do in this iteration')
+            logging.info('nothing to do in this iteration')
             return wait_time
 
         had_cve_updates = False
@@ -113,7 +113,7 @@ class Worker:
                 had_cve_updates = True
 
         if had_cve_updates:
-            logging.debug('updating simplified vulnerabilities information')
+            logging.info('updating simplified vulnerabilities information')
             self._update_vulnerable_versions()
 
         return None
@@ -131,7 +131,7 @@ class Worker:
                 return
 
             if wait_time is not None:
-                logging.debug(f'sleeping for {wait_time} second(s)')
+                logging.info(f'sleeping for {wait_time:.1f} second(s) before next iteration')
                 time.sleep(wait_time)
 
 

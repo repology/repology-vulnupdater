@@ -110,7 +110,7 @@ class Source(ABC):
         pass
 
     def update(self) -> bool:
-        logging.debug(f'source {self._url}: start update')
+        logging.info(f'source {self._url}: start update')
 
         headers = {
             'user-agent': _USER_AGENT
@@ -121,7 +121,7 @@ class Source(ABC):
 
         response = requests.get(self._url, stream=True, headers=headers)
         if response.status_code == 304:
-            logging.debug(f'source {self._url}: not modified')
+            logging.info(f'source {self._url}: not modified')
             self._save_state()
             return False
 
@@ -130,7 +130,7 @@ class Source(ABC):
             self._save_state()
             return False
 
-        logging.debug(f'source {self._url}: processing')
+        logging.info(f'source {self._url}: processing')
 
         with gzip.open(response.raw) as decompressed:
             updated = self._process(decompressed)
@@ -141,6 +141,6 @@ class Source(ABC):
 
         self._save_state()
 
-        logging.debug(f'source {self._url}: update done ({num_updates} updates)')
+        logging.info(f'source {self._url}: update done ({num_updates} updates)')
 
         return updated
