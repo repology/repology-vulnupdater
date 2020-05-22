@@ -137,8 +137,10 @@ class Source(ABC):
 
         self._etag = response.headers.get('etag')
 
+        num_updates = self._num_updates
+
         self._save_state()
 
-        logging.debug(f'source {self._url}: update done')
+        logging.debug(f'source {self._url}: update done ({num_updates} updates)')
 
         return updated
