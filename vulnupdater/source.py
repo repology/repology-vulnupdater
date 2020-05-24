@@ -119,7 +119,7 @@ class Source(ABC):
         if self._etag is not None:
             headers['if-none-match'] = self._etag
 
-        response = requests.get(self._url, stream=True, headers=headers)
+        response = requests.get(self._url, stream=True, headers=headers, timeout=60)
         if response.status_code == 304:
             logging.info(f'source {self._url}: not modified')
             self._save_state()
