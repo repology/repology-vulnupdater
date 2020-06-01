@@ -44,11 +44,17 @@ class Worker:
         self._db = psycopg2.connect(options.dsn, application_name='repology-vulnupdater')
 
     def _generate_sources(self) -> Iterable[Source]:
-        if not self._options.fast_only:
+        generate_all = not (self._options.fast_only or self._options.slow_only or self._options.cpe_dict_only)
+
+        if generate_all or self._options.slow_only:
             for year in range(2002, datetime.datetime.now().year + 1):
                 yield CveFeedSource(self._db, f'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-{year}.json.gz', _SLOW_UPDATE_PERIOD)
-        yield CveFeedSource(self._db, 'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz', _FAST_UPDATE_PERIOD)
-        yield CpeDictSource(self._db, 'https://nvd.nist.gov/feeds/xml/cpe/dictionary/official-cpe-dictionary_v2.3.xml.gz', _SLOW_UPDATE_PERIOD)
+
+        if generate_all or self._options.fast_only:
+            yield CveFeedSource(self._db, 'https://nvd.nist.gov/feeds/json/cve/1.1/nvdcve-1.1-modified.json.gz', _FAST_UPDATE_PERIOD)
+
+        if generate_all or self._options.cpe_dict_only:
+            yield CpeDictSource(self._db, 'https://nvd.nist.gov/feeds/xml/cpe/dictionary/official-cpe-dictionary_v2.3.xml.gz', _SLOW_UPDATE_PERIOD)
 
     def _update_vulnerable_versions(self) -> None:
         with self._db.cursor() as cur:
@@ -143,7 +149,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('-D', '--dsn', default=config['DSN'], help='database connection params')
     parser.add_argument('-d', '--debug', action='store_true', help='enable debug logging')
-    parser.add_argument('-f', '--fast-only', action='store_true', help='operate on fast feed only')
+    parser.add_argument('-f', '--fast-only', action='store_true', help='limit operation with fast feed')
+    parser.add_argument('-s', '--slow-only', action='store_true', help='limit operation with slow feeds')
+    parser.add_argument('-c', '--cpe-dict-only', action='store_true', help='limit operation with cpe dictionary')
     parser.add_argument('-1', '--once-only', action='store_true', help="do just a single update pass, don't loop")
 
     args = parser.parse_args()
