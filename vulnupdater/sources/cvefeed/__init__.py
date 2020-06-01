@@ -55,6 +55,13 @@ class CveFeedSource(Source):
                 [
                     match.vendor,
                     match.product,
+                    match.edition,
+                    match.lang,
+                    match.sw_edition,
+                    match.target_sw,
+                    match.target_hw,
+                    match.other,
+
                     match.start_version,
                     match.end_version,
                     match.start_version_excluded,

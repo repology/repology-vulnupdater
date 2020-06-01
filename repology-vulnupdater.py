@@ -66,26 +66,66 @@ class Worker:
                     SELECT
                         jsonb_array_elements(matches)->>0 AS cpe_vendor,
                         jsonb_array_elements(matches)->>1 AS cpe_product,
-                        jsonb_array_elements(matches)->>2 AS start_version,
-                        jsonb_array_elements(matches)->>3 AS end_version,
-                        (jsonb_array_elements(matches)->>4)::boolean AS start_version_excluded,
-                        (jsonb_array_elements(matches)->>5)::boolean AS end_version_excluded
+                        jsonb_array_elements(matches)->>2 AS cpe_edition,
+                        jsonb_array_elements(matches)->>3 AS cpe_lang,
+                        jsonb_array_elements(matches)->>4 AS cpe_sw_edition,
+                        jsonb_array_elements(matches)->>5 AS cpe_target_sw,
+                        jsonb_array_elements(matches)->>6 AS cpe_target_hw,
+                        jsonb_array_elements(matches)->>7 AS cpe_other,
+                        jsonb_array_elements(matches)->>8 AS start_version,
+                        jsonb_array_elements(matches)->>9 AS end_version,
+                        (jsonb_array_elements(matches)->>10)::boolean AS start_version_excluded,
+                        (jsonb_array_elements(matches)->>11)::boolean AS end_version_excluded
                     FROM cves
                 ), matches_with_covering_ranges AS (
                     SELECT
                         cpe_vendor,
                         cpe_product,
+                        cpe_edition,
+                        cpe_lang,
+                        cpe_sw_edition,
+                        cpe_target_sw,
+                        cpe_target_hw,
+                        cpe_other,
+
                         start_version,
                         end_version,
                         start_version_excluded,
                         end_version_excluded,
-                        max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (PARTITION BY cpe_vendor, cpe_product) AS covering_end_version
+                        max(end_version::versiontext) FILTER(WHERE start_version IS NULL) OVER (
+                            PARTITION BY
+                                cpe_vendor,
+                                cpe_product,
+                                cpe_sw_edition,
+                                cpe_target_sw
+                        ) AS covering_end_version
                     FROM expanded_matches
                 )
-                INSERT INTO vulnerable_versions
+                INSERT INTO vulnerable_cpes (
+                    cpe_vendor,
+                    cpe_product,
+                    cpe_edition,
+                    cpe_lang,
+                    cpe_sw_edition,
+                    cpe_target_sw,
+                    cpe_target_hw,
+                    cpe_other,
+
+                    start_version,
+                    end_version,
+                    start_version_excluded,
+                    end_version_excluded
+                )
                 SELECT DISTINCT
                     cpe_vendor,
                     cpe_product,
+                    cpe_edition,
+                    cpe_lang,
+                    cpe_sw_edition,
+                    cpe_target_sw,
+                    cpe_target_hw,
+                    cpe_other,
+
                     start_version,
                     end_version,
                     start_version_excluded,

@@ -24,9 +24,18 @@ from vulnupdater.cpe import CPE
 @dataclass(unsafe_hash=True)
 class CPEMatch:
     vulnerable: bool
+
     part: str
+
     vendor: str
     product: str
+    edition: str
+    lang: str
+    sw_edition: str
+    target_sw: str
+    target_hw: str
+    other: str
+
     start_version: Optional[str] = None
     end_version: Optional[str] = None
     start_version_excluded: bool = False
@@ -36,9 +45,17 @@ class CPEMatch:
         cpe = CPE(data['cpe23Uri'])
 
         self.vulnerable = data['vulnerable']
+
         self.part = cpe.part
+
         self.vendor = cpe.vendor
         self.product = cpe.product
+        self.edition = cpe.edition
+        self.lang = cpe.lang
+        self.sw_edition = cpe.sw_edition
+        self.target_sw = cpe.target_sw
+        self.target_hw = cpe.target_hw
+        self.other = cpe.other
 
         if cpe.version != '*':
             self.start_version = cpe.version

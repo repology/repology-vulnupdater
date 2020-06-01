@@ -23,7 +23,7 @@ import psycopg2
 class CpeDictBatcher:
     _db: Any
 
-    _batch: MutableSet[Tuple[str, str]]
+    _batch: MutableSet[Tuple[str, str, str, str, str, str, str, str]]
     _max_batch_size: int
 
     _num_updates: int = 0
@@ -39,11 +39,23 @@ class CpeDictBatcher:
                 """
                 INSERT INTO cpe_dictionary (
                     cpe_vendor,
-                    cpe_product
+                    cpe_product,
+                    cpe_edition,
+                    cpe_lang,
+                    cpe_sw_edition,
+                    cpe_target_sw,
+                    cpe_target_hw,
+                    cpe_other
                 )
                 SELECT
                     json_array_elements(cpes)->>0,
-                    json_array_elements(cpes)->>1
+                    json_array_elements(cpes)->>1,
+                    json_array_elements(cpes)->>2,
+                    json_array_elements(cpes)->>3,
+                    json_array_elements(cpes)->>4,
+                    json_array_elements(cpes)->>5,
+                    json_array_elements(cpes)->>6,
+                    json_array_elements(cpes)->>7
                 FROM (
                     SELECT %(cpes)s::json AS cpes
                 ) AS tmp
@@ -59,8 +71,8 @@ class CpeDictBatcher:
 
         self._batch = set()
 
-    def add(self, vendor: str, product: str) -> None:
-        self._batch.add((vendor, product))
+    def add(self, vendor: str, product: str, edition: str, lang: str, sw_edition: str, target_sw: str, target_hw: str, other: str) -> None:
+        self._batch.add((vendor, product, edition, lang, sw_edition, target_sw, target_hw, other))
 
         if len(self._batch) > self._max_batch_size:
             self._flush()

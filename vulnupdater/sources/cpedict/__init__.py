@@ -36,7 +36,7 @@ class CpeDictSource(Source):
         with CpeDictBatcher(self._db, 1000) as batcher:
             for cpe in map(CPE, iter_cpe_dict(stream)):
                 if cpe.part == 'a':
-                    batcher.add(cpe.vendor, cpe.product)
+                    batcher.add(cpe.vendor, cpe.product, cpe.edition, cpe.lang, cpe.sw_edition, cpe.target_sw, cpe.target_hw, cpe.other)
 
             self._num_updates += batcher.get_num_updates()
             return batcher.get_num_updates() > 0
