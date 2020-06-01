@@ -59,6 +59,3 @@ class CPEMatch:
                 self.end_version_excluded = True
             if 'versionEndIncluding' in data:
                 self.end_version = data['versionEndIncluding']
-
-    def __repr__(self) -> str:
-        return f'{"+" if self.vulnerable else "-"}{self.vendor}:{self.product} {"(" if self.start_version_excluded else "["}{self.start_version}, {self.end_version}{")" if self.end_version_excluded else "]"}'
