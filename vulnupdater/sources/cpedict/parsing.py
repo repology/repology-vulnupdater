@@ -49,8 +49,9 @@ def iter_cpe_dict(source: IO[bytes]) -> Iterable[str]:
             nestlevel += 1
         elif event == 'end':
             nestlevel -= 1
-            if nestlevel == 2:
-                if elem.tag == '{http://scap.nist.gov/schema/cpe-extension/2.3}cpe23-item':
-                    yield _extract_cpe(elem)
+            if nestlevel == 1:
+                if elem.tag == '{http://cpe.mitre.org/dictionary/2.0}cpe-item' and elem.attrib.get('deprecated') != 'true':
+                    if (cpe23_item := elem.find('{http://scap.nist.gov/schema/cpe-extension/2.3}cpe23-item')) is not None:
+                        yield _extract_cpe(cpe23_item)
                 if rootelem is not None:
                     rootelem.clear()
