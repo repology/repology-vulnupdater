@@ -96,8 +96,12 @@ class Worker:
                             PARTITION BY
                                 cpe_vendor,
                                 cpe_product,
+                                cpe_edition,
+                                cpe_lang,
                                 cpe_sw_edition,
-                                cpe_target_sw
+                                cpe_target_sw,
+                                cpe_target_hw,
+                                cpe_other
                         ) AS covering_end_version
                     FROM expanded_matches
                 )
