@@ -38,9 +38,9 @@ class TestCPE(unittest.TestCase):
     def test_escaped(self):
         cpe = CPE('cpe:2.3:a:foo\\$bar:foo\\:bar:foo\\\\bar:*:*:*:*:*:*:')
 
-        self.assertEqual(cpe.vendor, 'foo$bar')
-        self.assertEqual(cpe.product, 'foo:bar')
-        self.assertEqual(cpe.version, 'foo\\bar')
+        self.assertEqual(cpe.vendor, 'foo\\$bar')
+        self.assertEqual(cpe.product, 'foo\\:bar')
+        self.assertEqual(cpe.version, 'foo\\\\bar')
 
 
 if __name__ == '__main__':

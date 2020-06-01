@@ -16,7 +16,6 @@
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
 from dataclasses import dataclass
-from typing import List
 
 
 @dataclass
@@ -31,7 +30,7 @@ class CPE:
     sw_edition: str
     target_sw: str
     target_hw: str
-    other: List[str]
+    other: str
 
     def __init__(self, cpe_str: str) -> None:
         escaped = False
@@ -40,7 +39,7 @@ class CPE:
 
         for char in cpe_str:
             if escaped:
-                current += char
+                current += '\\' + char
                 escaped = False
             elif char == '\\':
                 escaped = True
@@ -52,7 +51,7 @@ class CPE:
 
         res.append(current)
 
-        _, _, self.part, self.vendor, self.product, self.version, self.update, self.edition, self.lang, self.sw_edition, self.target_sw, self.target_hw, *self.other = res
+        _, _, self.part, self.vendor, self.product, self.version, self.update, self.edition, self.lang, self.sw_edition, self.target_sw, self.target_hw, self.other = res
 
     def __repr__(self) -> str:
-        return f'cpe:2.3:{self.part}:{self.vendor}:{self.product}:{self.version}:{self.update}:{self.edition}:{self.lang}:{self.sw_edition}:{self.target_sw}:{self.target_hw}:{":".join(self.other)}'.rstrip(':')
+        return f'cpe:2.3:{self.part}:{self.vendor}:{self.product}:{self.version}:{self.update}:{self.edition}:{self.lang}:{self.sw_edition}:{self.target_sw}:{self.target_hw}:{self.other}'
