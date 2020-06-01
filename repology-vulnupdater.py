@@ -58,10 +58,10 @@ class Worker:
 
     def _update_vulnerable_versions(self) -> None:
         with self._db.cursor() as cur:
+            cur.execute('DELETE FROM vulnerable_cpes')
+
             cur.execute(
                 """
-                DELETE FROM vulnerable_versions;
-
                 WITH expanded_matches AS (
                     SELECT
                         jsonb_array_elements(matches)->>0 AS cpe_vendor,
