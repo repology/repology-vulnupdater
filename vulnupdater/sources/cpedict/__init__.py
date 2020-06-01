@@ -30,6 +30,9 @@ class CpeDictSource(Source):
         return CpeDictSource.TYPE
 
     def _process(self, stream: IO[bytes]) -> bool:
+        with self._db.cursor() as cur:
+            cur.execute('DELETE FROM cpe_dictionary')
+
         with CpeDictBatcher(self._db, 1000) as batcher:
             for cpe in map(CPE, iter_cpe_dict(stream)):
                 if cpe.part == 'a':
