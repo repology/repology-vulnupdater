@@ -25,6 +25,26 @@ from vulnupdater.source import Source
 from vulnupdater.sources.cvefeed.match import CPEMatch
 
 
+_OS_WHITELIST = {
+    ('linux', 'kernel'),
+    ('linux', 'linux_kernel'),
+    ('xen', 'xen'),
+}
+
+
+def _is_good_match(match: CPEMatch) -> bool:
+    if not match.vulnerable:
+        return False
+
+    if not (match.part == 'a' or match.part == 'o' and (match.vendor, match.product) in _OS_WHITELIST):
+        return False
+
+    if not match.end_version or match.end_version == '-':
+        return False
+
+    return True
+
+
 class CveFeedSource(Source):
     TYPE: ClassVar[str] = 'cve_feed'
 
@@ -47,9 +67,7 @@ class CveFeedSource(Source):
                 if 'cpe_match' not in configuration:
                     continue
 
-                for match in map(CPEMatch, configuration['cpe_match']):
-                    if match.vulnerable and match.part == 'a' and match.end_version and match.end_version != '-':
-                        usable_matches.add(match)
+                usable_matches.update(filter(_is_good_match, map(CPEMatch, configuration['cpe_match'])))
 
             matches_for_json = [
                 [
