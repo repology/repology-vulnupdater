@@ -136,7 +136,8 @@ class Worker:
                     end_version_excluded
                 FROM matches_with_covering_ranges
                 WHERE
-                    coalesce(version_compare2(end_version, covering_end_version) >= 0, true)
+                    coalesce(version_compare2(end_version, covering_end_version) >= 0, true) AND
+                    end_version IS NOT NULL
                 """
             )
 

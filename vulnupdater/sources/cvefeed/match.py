@@ -25,47 +25,21 @@ from vulnupdater.cpe import CPE
 class CPEMatch:
     vulnerable: bool
 
-    part: str
-
-    vendor: str
-    product: str
-    edition: str
-    lang: str
-    sw_edition: str
-    target_sw: str
-    target_hw: str
-    other: str
+    cpe: CPE
 
     start_version: Optional[str] = None
     end_version: Optional[str] = None
     start_version_excluded: bool = False
     end_version_excluded: bool = False
 
-    def __init__(self, data: Any) -> None:
-        cpe = CPE(data['cpe23Uri'])
+    valid: bool = True
 
+    def __init__(self, data: Any) -> None:
         self.vulnerable = data['vulnerable']
 
-        self.part = cpe.part
+        self.cpe = CPE(data['cpe23Uri'])
 
-        self.vendor = cpe.vendor
-        self.product = cpe.product
-        self.edition = cpe.edition
-        self.lang = cpe.lang
-        self.sw_edition = cpe.sw_edition
-        self.target_sw = cpe.target_sw
-        self.target_hw = cpe.target_hw
-        self.other = cpe.other
-
-        if cpe.version != '*':
-            self.start_version = cpe.version
-            self.end_version = cpe.version
-
-            assert('versionEndExcluding' not in data)
-            assert('versionEndIncluding' not in data)
-            assert('versionStartExcluding' not in data)
-            assert('versionStartIncluding' not in data)
-        else:
+        if self.cpe.version == '*':
             if 'versionStartExcluding' in data:
                 self.start_version = data['versionStartExcluding']
                 self.start_version_excluded = True
@@ -76,3 +50,13 @@ class CPEMatch:
                 self.end_version_excluded = True
             if 'versionEndIncluding' in data:
                 self.end_version = data['versionEndIncluding']
+        elif self.cpe.version != '-':
+            self.start_version = self.cpe.version
+            self.end_version = self.cpe.version
+
+            assert('versionEndExcluding' not in data)
+            assert('versionEndIncluding' not in data)
+            assert('versionStartExcluding' not in data)
+            assert('versionStartIncluding' not in data)
+        else:
+            self.valid = False

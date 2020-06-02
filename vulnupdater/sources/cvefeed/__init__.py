@@ -15,7 +15,7 @@
 # You should have received a copy of the GNU General Public License
 # along with repology.  If not, see <http://www.gnu.org/licenses/>.
 
-from typing import ClassVar, IO, MutableSet
+from typing import ClassVar, IO, Set
 
 from jsonslicer import JsonSlicer
 
@@ -33,16 +33,10 @@ _OS_WHITELIST = {
 
 
 def _is_good_match(match: CPEMatch) -> bool:
-    if not match.vulnerable:
+    if not match.vulnerable or not match.valid:
         return False
 
-    if not (match.part == 'a' or match.part == 'o' and (match.vendor, match.product) in _OS_WHITELIST):
-        return False
-
-    if not match.end_version or match.end_version == '-':
-        return False
-
-    return True
+    return match.cpe.part == 'a' or match.cpe.part == 'o' and (match.cpe.vendor, match.cpe.product) in _OS_WHITELIST
 
 
 class CveFeedSource(Source):
@@ -58,7 +52,7 @@ class CveFeedSource(Source):
             cve_id: str = cve['cve']['CVE_data_meta']['ID']
             published: str = cve['publishedDate']
             last_modified: str = cve['lastModifiedDate']
-            usable_matches: MutableSet[CPEMatch] = set()
+            usable_matches: Set[CPEMatch] = set()
 
             for configuration in cve['configurations']['nodes']:
                 if configuration['operator'] != 'OR':
@@ -71,14 +65,14 @@ class CveFeedSource(Source):
 
             matches_for_json = [
                 [
-                    match.vendor,
-                    match.product,
-                    match.edition,
-                    match.lang,
-                    match.sw_edition,
-                    match.target_sw,
-                    match.target_hw,
-                    match.other,
+                    match.cpe.vendor,
+                    match.cpe.product,
+                    match.cpe.edition,
+                    match.cpe.lang,
+                    match.cpe.sw_edition,
+                    match.cpe.target_sw,
+                    match.cpe.target_hw,
+                    match.cpe.other,
 
                     match.start_version,
                     match.end_version,
@@ -134,7 +128,7 @@ class CveFeedSource(Source):
                         'published': published,
                         'last_modified': last_modified,
                         'matches': psycopg2.extras.Json(matches_for_json) if matches_for_json else None,
-                        'cpe_pairs': list(set(f'{match.vendor}:{match.product}' for match in usable_matches)) or None
+                        'cpe_pairs': list(set(f'{match.cpe.vendor}:{match.cpe.product}' for match in usable_matches)) or None
                     }
                 )
 
