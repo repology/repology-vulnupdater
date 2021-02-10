@@ -52,7 +52,11 @@ class CPEMatch:
                 self.end_version = data['versionEndIncluding']
         elif self.cpe.version != '-':
             self.start_version = self.cpe.version
-            self.end_version = self.cpe.version
+            if self.cpe.update and self.cpe.update != '*' and self.cpe.update != '-':
+                if self.cpe.update[0].isdecimal():
+                    self.start_version += '-'
+                self.start_version += self.cpe.update
+            self.end_version = self.start_version
 
             assert('versionEndExcluding' not in data)
             assert('versionEndIncluding' not in data)
