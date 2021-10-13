@@ -23,7 +23,7 @@ from typing import Any, IO, Optional
 import requests
 
 
-_USER_AGENT = 'repology-vulnupdater/0 (+{}/bots)'.format('https://repology.org')
+_USER_AGENT = 'repology-vulnupdater/0 (+{}/docs/bots)'.format('https://repology.org')
 
 
 class Source(ABC):
