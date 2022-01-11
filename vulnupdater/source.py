@@ -133,7 +133,7 @@ class Source(ABC):
         logging.info(f'source {self._url}: processing')
 
         with gzip.open(response.raw) as decompressed:
-            updated = self._process(decompressed)
+            updated = self._process(decompressed)  # type: ignore  # GzipFile not compatible with IO[bytes], typing bug?
 
         self._etag = response.headers.get('etag')
 
